@@ -143,7 +143,7 @@ from scipy.stats import poisson
 plt.rcParams.update({'font.size': 18})
 Dlist = np.array(list(D.keys()))[ np.argsort( -np.array( list(D.values()) ) ) ] #sorted by frequency, highest to lowest
 
-"""
+
 fig, ax = plt.subplots( 1,2, figsize=(20,10) )
 counts = [ len(v)-1 for k,v in C.items() ]
 mu = np.mean(counts)
@@ -187,7 +187,7 @@ ax[1].set_title("(b)")
 plt.savefig("global_confusion.png", dpi=fig.dpi)
 #plt.show()
 plt.close()
-"""
+
 
 
 ##################################################
