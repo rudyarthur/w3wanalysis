@@ -1,3 +1,23 @@
+###############################################################################
+#Permission is hereby granted, free of charge, to any person obtaining a copy
+#of this software and associated documentation files (the "Software"), to deal
+#in the Software without restriction, including without limitation the rights
+#to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+#copies of the Software, and to permit persons to whom the Software is
+#furnished to do so, subject to the following conditions:
+#
+#The above copyright notice and this permission notice shall be included in all
+#copies or substantial portions of the Software.
+#
+#THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+#IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+#FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+#AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+#LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+#OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+#SOFTWARE.
+###############################################################################
+
 import csv
 import json
 import sys, os
@@ -173,22 +193,20 @@ for s in range(Ns):
 mu = np.mean(counts)
 freq, bins = np.histogram(counts, bins=range(max(counts)+1), density=True)
 print("lambda_3 =", mu, "p_3(0)=",freq[0], "p_3(c>4)", sum(freq[4:]) )
-ax[1].hist(counts, bins=range(20), density=True, label=r'$c_\Pi$: $p_3(0) = {:.2f}$, '.format(freq[0]) + r'$p_3(c_\Pi>3) = {:.2f}$, '.format( sum(freq[4:]) ) + r'$\lambda_3 = {:.2f}$'.format(mu), alpha=0.25)
+ax[1].hist(counts, bins=range(20), density=True, label=r'$c_\Pi$: $p_3(0) = {:.2f}$, '.format(freq[0]) + r'$p_3(c_\Pi>3) = {:.2f}$, '.format( sum(freq[4:]) ) + r'$\lambda_3 = {:.2f}$'.format(mu), alpha=1, histtype="step")
 mu = np.mean(sum_counts)
 freq, bins = np.histogram(sum_counts, bins=range(max(sum_counts)+1), density=True)
 print("lambda_3 =", mu, "p_3(0)=",freq[0], "p_3(c>4)", sum(freq[4:]) )
-ax[1].hist(sum_counts, bins=range(20), density=True, label=r'$c_\Sigma$: $p_3(0) = {:.2f}$, '.format(freq[0]) + r'$p_3(c_\Sigma>3) = {:.2f}$, '.format( sum(freq[4:]) ) + r'$\lambda_3 = {:.2f}$'.format(mu), color='C2', alpha=0.25)
+ax[1].hist(sum_counts, bins=range(20), density=True, label=r'$c_\Sigma$: $p_3(0) = {:.2f}$, '.format(freq[0]) + r'$p_3(c_\Sigma>3) = {:.2f}$, '.format( sum(freq[4:]) ) + r'$\lambda_3 = {:.2f}$'.format(mu), color='C3', alpha=1,  histtype="step")
 ax[1].set_xlabel(r"$c$")
 ax[1].set_ylabel(r"$p_3(c)$")
 ax[1].legend(loc="upper right")
 
 ax[0].set_title("(a)")
 ax[1].set_title("(b)")
-plt.savefig("global_confusion.png", dpi=fig.dpi)
+plt.savefig("global_confusion.eps", dpi=fig.dpi)
 #plt.show()
 plt.close()
-
-
 
 ##################################################
 ### W3W conversion functions				   ###
@@ -358,7 +376,7 @@ colors = ['y','c','m']
 for i in range(3):
 	
 	idx = np.array( [ j for j in range(len(data)) if data[j]==i ] )
-	ax1.scatter(row[idx], col[idx], marker='s', c=colors[i], label=r"{} confusable pairs with {} identical words".format( int(sp[i]/2), i), s=3)
+	ax1.scatter(row[idx], col[idx], marker='s', c=colors[i], label=r"{} confusable pairs with {} identical words".format( int(sp[i]/2), i), s=6)
 
 ax1.axvline(x=961, linestyle="--", color='k')
 ax1.axvline(x=961*2, linestyle="--", color='k')
@@ -370,7 +388,7 @@ ax1.set_title("(b)")
 lgnd = ax1.legend(markerscale=6, loc="upper left")
 
 
-plt.savefig("local_confusion.png", dpi=fig.dpi)
+plt.savefig("local_confusion.eps", dpi=fig.dpi)
 plt.show()
 plt.close()
 
