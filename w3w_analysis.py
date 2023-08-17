@@ -34,17 +34,32 @@ skip = 100
 if os.path.exists("D.json"):
 	with open("D.json", 'r') as infile: D = json.loads( infile.read() )
 else:
+	variants = {}
+	with open('spelling_variants.txt', 'r') as infile:
+		 for line in infile.readlines():
+			 a, b = line.split()
+			 a = a.strip()
+			 b = b.strip()
+			 variants[a] = b
+			 variants[b] = a
+		 
 	with open('SUBTLEXusExcel2007.csv', 'r') as infile:
 		csvreader = csv.reader(infile)
 		head = next(csvreader)
 		D = {}
 		for i,row in enumerate(csvreader):
+			#isupper gets rid of some normal words but also proper nouns Paris etc. whcih are not in w3w
 			if row[0][0].isupper() or (int(row[1]) < min_freq) or (len(row[0]) < min_size) or (i < skip): continue
-			D[ row[0].lower() ] = int(row[1]) 
+			w = row[0].lower()
+			##skip spelling variants
+			if w in variants:
+				if variants[w] in D: continue;
+			D[ w ] = int(row[1]) 
 	with open("D.json", 'w') as outfile: outfile.write( json.dumps(D) )
 
+k = max(D, key=D.get)
 most_frequent = max( D.values() )
-
+print("{} words in D".format(len(D)))
 
 ##################################################
 ##Get the most common words					   ###
@@ -75,9 +90,8 @@ else:
 					IPA[w].add(  ''.join([c for c in pr if c in allowed])  )
 					for c in pr: chars.add(c)
 
-
 	for w in IPA: IPA[w] = list(IPA[w])
-
+	
 	common_words = []
 	H = {}
 
@@ -85,7 +99,7 @@ else:
 		if w in IPA: 
 			common_words.append(w)
 		else:
-			H[w] = []
+			H[w] = [] #no homonyms for w
 
 		
 	nh = 0
@@ -106,54 +120,85 @@ else:
 			
 	with open("homonyms.json", 'w') as outfile: outfile.write( json.dumps(H) )
 
-print( sum( int(len(H[w])>0) for w in H ), "words have homonyms in D({})".format(min_freq) ) 
 
+print( sum( int(len(H[w])>0) for w in H ), "words have homonyms in D({})".format(min_freq) ) 
+print( sum( int(len(H[w])>0) for w in H if any(x in Dtop for x in H[w]) ), "words have homonyms in D({})".format(top) ) 
+
+"""
+##useful for finding spelling variants
+done = set()
+for w in H:
+	if len(H[w]):
+		done.add(w)	
+		m = []
+		for x in H[w]: 
+			if x not in done: 
+				done.add(x)
+				m.append(x)
+		if m:
+			print(w, end=" ")
+			for x in m:
+				print(x, end=" ")
+			print('')
+sys.exit(1)
+"""
 ##################################################
 ###Generate confusion sets for ever word       ###
 ##################################################
 if os.path.exists("confusion.json"):
 	with open("confusion.json", 'r' ) as infile: C = json.loads( infile.read() )
+	with open("allconfusion.json", 'r' ) as infile: allC = json.loads( infile.read() )
 else:
 	
 	alphabet = list('abcdefghijklmnopqrstuvwxyz') + ['']
 	C = {}
-	
+	allC = {}
 	for i,w1 in enumerate(D):
 
 		##Above is too slow, so construct the confusions myself	
 		confusions = set()
+		all_confusions = set()
 		for j in range(len(w1)):
 			if j < len(w1)-1:
 				transp = w1[:j] + w1[j+1] + w1[j] + w1[j+2:]	##flip adjacent letters
 				if transp in Dtop: confusions.add(transp)
+				if transp in D: all_confusions.add(transp)
 			for c in alphabet:
 				ins = w1[:j] + c + w1[j:]	
 				if ins in Dtop: confusions.add(ins)
+				if ins in D: all_confusions.add(ins)
 				sub = w1[:j] + c + w1[j+1:] #substitution of empty string = deletion
 				if sub in Dtop: confusions.add(sub)
+				if sub in D: all_confusions.add(sub)
 		##tail insertion
 		for c in alphabet:
 			ins = w1 + c
 			if ins in Dtop: confusions.add(ins)		
-			
+			if ins in D: all_confusions.add(ins)
+
 		#homonyms
 		confusions = confusions.union( set([ w2 for w2 in H[w1] if w2 in Dtop ]) )
+		all_confusions = all_confusions.union( set([ w2 for w2 in H[w1] if w2 in D ]) )
 			
 		#if you don't want original word on the list
 		#if w1 in confusions: confusions.remove(w1)
 		#but you usually do
 		confusions.add(w1)
+		all_confusions.add(w1)
 	
 	
 		C[w1] = list(confusions)
+		allC[w1] = list(all_confusions)
 	
 		if i>0 and i % 1000 == 0: 
 			print(i,"/", len(D), "confusions sets generated")
 
 
 	with open("confusion.json", 'w' ) as outfile: outfile.write(json.dumps(C))
-
-print( sum( int(len(C[w])>1) for w in C ), "words have non-trivial confusion sets" ) 
+	with open("allconfusion.json", 'w' ) as outfile: outfile.write(json.dumps(allC))
+	
+print( sum( int(len(allC[w])>1) for w in allC ), "words have non-trivial confusion sets in D" ) 
+print( sum( int(len(C[w])>1) for w in C ), "words have non-trivial confusion sets in D({})".format(top) ) 
 
 ##################################################
 ###Plot the global confusion graph			   ###
@@ -163,50 +208,109 @@ from scipy.stats import poisson
 plt.rcParams.update({'font.size': 18})
 Dlist = np.array(list(D.keys()))[ np.argsort( -np.array( list(D.values()) ) ) ] #sorted by frequency, highest to lowest
 
-
-fig, ax = plt.subplots( 1,2, figsize=(20,10) )
-counts = [ len(v)-1 for k,v in C.items() ]
-mu = np.mean(counts)
-ax[0].hist(counts, bins=range(15), density=True )
-x = np.arange(11)+0.5
-ax[0].plot(x, poisson.pmf(x, mu), label=r'$\lambda_1 = {:.2f}$'.format(mu))
-ax[0].set_xlabel(r"$c$")
-ax[0].set_ylabel(r"$p(c)$")
-ax[0].legend(loc="upper right")
-
-
 np.random.seed(12345)
-Ns = 1000000
-counts = []
-sum_counts = []
-print("Generating Global Confusion...")
-for s in range(Ns):
-	ids = np.random.randint(0,len(Dlist),3)
-	sum_counts.append( sum( [len(C[ Dlist[k] ])-1 for k in ids] ) )	 
-
-	count = 1;
-	for k in ids: count *= len(C[ Dlist[k] ])	
-	count -= 1
+##sensitivity analysis
+def count_confusions(Ns, Cset):
+	counts = []
+	sum_counts = []
+	unique = set()
 	
-	counts.append(count )
+	for s in range(Ns):
+		ids = tuple( np.random.randint(0,len(Dlist),3) )
+		while ids in unique: ids = tuple( np.random.randint(0,len(Dlist),3) )
+		unique.add(ids)
 
-mu = np.mean(counts)
-freq, bins = np.histogram(counts, bins=range(max(counts)+1), density=True)
-print("lambda_3 =", mu, "p_3(0)=",freq[0], "p_3(c>4)", sum(freq[4:]) )
-ax[1].hist(counts, bins=range(20), density=True, label=r'$c_\Pi$: $p_3(0) = {:.2f}$, '.format(freq[0]) + r'$p_3(c_\Pi>3) = {:.2f}$, '.format( sum(freq[4:]) ) + r'$\lambda_3 = {:.2f}$'.format(mu), alpha=1, histtype="step")
-mu = np.mean(sum_counts)
-freq, bins = np.histogram(sum_counts, bins=range(max(sum_counts)+1), density=True)
-print("lambda_3 =", mu, "p_3(0)=",freq[0], "p_3(c>4)", sum(freq[4:]) )
-ax[1].hist(sum_counts, bins=range(20), density=True, label=r'$c_\Sigma$: $p_3(0) = {:.2f}$, '.format(freq[0]) + r'$p_3(c_\Sigma>3) = {:.2f}$, '.format( sum(freq[4:]) ) + r'$\lambda_3 = {:.2f}$'.format(mu), color='C3', alpha=1,  histtype="step")
-ax[1].set_xlabel(r"$c$")
-ax[1].set_ylabel(r"$p_3(c)$")
-ax[1].legend(loc="upper right")
+		sum_counts.append( sum( [len(Cset[ Dlist[k] ])-1 for k in ids] ) )	 
 
-ax[0].set_title("(a)")
-ax[1].set_title("(b)")
-plt.savefig("global_confusion.eps", dpi=fig.dpi)
-#plt.show()
-plt.close()
+		count = 1;
+		for k in ids: count *= len(Cset[ Dlist[k] ])	
+		count -= 1
+		counts.append(count)
+		
+	return counts, sum_counts
+
+do_sensitivity = False
+if do_sensitivity:
+	nwords = []
+	probs = []
+	target = 45000
+	for uf in range(3,2500,1):
+		Du = { k:v for k,v in D.items() if v >= uf}
+		
+		if len(Du) > target and uf != 150: continue
+		if uf != 150: target -= 1000
+		
+		print( r'|D({})| ='.format(uf), len(Du) )
+
+		Cu = {}
+		for k in allC:
+			Cu[k] = set([k])
+			for w in allC[k]:
+				if w in Du: Cu[k].add(w)
+			Cu[k] = list(Cu[k])
+			
+		print( sum( int(len(Cu[w])>1) for w in Cu ), "words have non-trivial confusion sets in D({})".format(uf) ) 
+
+
+
+		counts, sum_counts = count_confusions(1000000, Cu)
+		freq, bins = np.histogram(counts, bins=range(max(counts)+1), density=True)
+		pgt3 = sum(freq[4:])
+
+		
+		nwords.append(len(Du))
+		probs.append(pgt3)
+
+		if uf == 150: ytop_val = pgt3
+			
+	fig, ax = plt.subplots(figsize=(16,10))
+	plt.plot(nwords, probs, marker='o')
+	plt.annotate(r'${\cal D}(150)$', (len(Dtop), ytop_val))
+	plt.xlabel(r'|${\cal D}(v)$| = number of words considered "common"')
+	plt.ylabel( r'$p_3(c_\Pi>3)$')
+	plt.savefig("sensitivity.eps", dpi=fig.dpi)
+	plt.savefig("sensitivity.tiff", dpi=fig.dpi)
+	plt.savefig("sensitivity.png", dpi=fig.dpi)
+	#plt.show()
+	plt.close()
+
+do_global=False
+if do_global:
+	fig, ax = plt.subplots( 1,2, figsize=(20,10) )
+	counts = [ len(v)-1 for k,v in C.items() ]
+	mu = np.mean(counts)
+	ax[0].hist(counts, bins=range(15), density=True )
+	x = np.arange(11)+0.5
+	ax[0].plot(x, poisson.pmf(x, mu), label=r'$\lambda_1 = {:.2f}$'.format(mu))
+	ax[0].set_xlabel(r"$c$")
+	ax[0].set_ylabel(r"$p(c)$")
+	ax[0].legend(loc="upper right")
+
+	Ns = 1000000
+	counts = []
+	sum_counts = []
+	print("Generating Global Confusion...")
+	counts, sum_counts = count_confusions(Ns, C)
+	mu = np.mean(counts)
+	freq, bins = np.histogram(counts, bins=range(max(counts)+1), density=True)
+	print("lambda_3 =", mu, "p_3(0)=",freq[0], "p_3(c>4)", sum(freq[4:]) )
+	ax[1].hist(counts, bins=range(20), density=True, label=r'$c_\Pi$: $p_3(0) = {:.2f}$, '.format(freq[0]) + r'$p_3(c_\Pi>3) = {:.2f}$, '.format( sum(freq[4:]) ) + r'$\lambda_3 = {:.2f}$'.format(mu), alpha=1, histtype="step")
+	mu = np.mean(sum_counts)
+	freq, bins = np.histogram(sum_counts, bins=range(max(sum_counts)+1), density=True)
+	print("lambda_3 =", mu, "p_3(0)=",freq[0], "p_3(c>4)", sum(freq[4:]) )
+	ax[1].hist(sum_counts, bins=range(20), density=True, label=r'$c_\Sigma$: $p_3(0) = {:.2f}$, '.format(freq[0]) + r'$p_3(c_\Sigma>3) = {:.2f}$, '.format( sum(freq[4:]) ) + r'$\lambda_3 = {:.2f}$'.format(mu), color='C3', alpha=1,  histtype="step")
+	ax[1].set_xlabel(r"$c$")
+	ax[1].set_ylabel(r"$p_3(c)$")
+	ax[1].legend(loc="upper right")
+
+	ax[0].set_title("(a)")
+	ax[1].set_title("(b)")
+	plt.savefig("global_confusion.eps", dpi=fig.dpi)
+	plt.savefig("global_confusion.tiff", dpi=fig.dpi)
+	plt.savefig("global_confusion.png", dpi=fig.dpi)
+	#plt.show()
+	plt.close()
+
 
 ##################################################
 ### W3W conversion functions				   ###
@@ -229,7 +333,11 @@ def XYxy_to_lat_lon(X,Y,x,y):
 		
 def xy_to_n(x,y, q=0):
 	return q + 1546*x + y
-	
+def n_to_xy(n, q=0):
+	y = (n - q)%1546
+	x = (n - q - y)//1546
+	return x,y
+		
 def n_to_m(n, b=20000000000, a=3639313, c=0):
 	return c +(	a*n % b ) 
 
@@ -265,13 +373,14 @@ for w in C:
 address_book = defaultdict(lambda: defaultdict(list)) #{123:{456:[7,8,9]}}
 test = []
 address_map = {}
+address_id = defaultdict(lambda: defaultdict(str))
 
 V = 1546*961
 X = 4316 
 Y = 3396
-
+qinit = 1
 slat, slon = XYxy_to_lat_lon(X,Y,0,0)
-flat, flon = XYxy_to_lat_lon(X+3,Y,961,1546)
+flat, flon = XYxy_to_lat_lon(X+4,Y,961,1546)
 print( "Simulate W3W...")
 print( "start lat, lon:", slat, slon )
 print( "final lat, lon:", flat, flon )
@@ -281,12 +390,13 @@ print( "Y distance =", distance.distance( (slat,slon) , (flat,slon) ).km , "km")
 if os.path.exists("address_book.json"):
 	with open("address_book.json", 'r' ) as infile: address_book = json.loads( infile.read() )
 	with open("address_map.json", 'r' ) as infile: address_map = json.loads( infile.read() )
+	#with open("address_id.json", 'r' ) as infile: address_id = json.loads( infile.read() )
 else:
 
 
 			
-	for qi in range(3):
-		q = 1 + qi*V
+	for qi in range(4):
+		q = qinit + qi*V
 		print("Cell ::", qi )
 
 		for x in range(961): 
@@ -297,12 +407,33 @@ else:
 				i,j,k = m_to_tuple(m) 
 
 				address_book[ id_to_word[i] ][ id_to_word[j] ].append( id_to_word[k] )
-				address_map[ ".".join([id_to_word[c] for c in (i,j,k)]) ] = [ XYxy_to_lat_lon(X,Y,x,y), (961*qi + x,y) ]
-				
+				addr = ".".join([id_to_word[c] for c in (i,j,k)])
+				address_map[ addr ] = [ XYxy_to_lat_lon(X,Y,x,y), (961*qi + x,y) ]
+				address_id[ n ] = addr
 		X += 1
 
 	with open("address_book.json", 'w' ) as outfile: outfile.write(json.dumps(address_book))
 	with open("address_map.json", 'w' ) as outfile: outfile.write(json.dumps(address_map))
+	#with open("address_id.json", 'w' ) as outfile: outfile.write(json.dumps(address_id))
+
+magic = 5083377
+print( "a * {} mod b = ".format(magic), n_to_m(magic) )
+
+s0 = 0
+n3 = xy_to_n(0,0,q=qinit) + magic
+s3 , y3 = n_to_xy(n3,q=qinit+3*V)
+s3 += 3*961
+for x in range(961): 
+	n0 = xy_to_n(x,0,q=qinit)
+	n3 = n0 + magic
+	if n3 > 4*V:
+		f0 = x
+		break
+f3 = 961
+f3 += 3*961
+
+print("Delta n dist",  distance.distance( XYxy_to_lat_lon(X,Y,s0,0), XYxy_to_lat_lon(X,Y,s3,0) ).km )
+print("Delta n dist",  distance.distance( XYxy_to_lat_lon(X,Y,f0,0), XYxy_to_lat_lon(X,Y,f3,0) ).km )
 
 
 cpairs = 0;
@@ -323,9 +454,8 @@ for i in address_book:
 							cpairs += 1
 
 
-print("# confusable addresses =", cpairs ) #cpairs = 1300 in 1
-									#cpairs = 12158 in 3
-
+print("# confusable addresses =", cpairs ) #cpairs = 1370 in 1
+									#cpairs = 22514 in 4
 unique_pairs = set()
 for k in tree_confusions:
 	for v in tree_confusions[k]:
@@ -333,62 +463,76 @@ for k in tree_confusions:
 
 print("# unique pairs",len(unique_pairs))
 
-
-dists = []
-N = 961*3 	
-M = 1546
-row = []
-col = []
-data = []
-
-for k,v in unique_pairs:
-	d = distance.distance( address_map[k][0], address_map[v][0] ).km
-	x1,y1 = address_map[k][1]
-	x2,y2 = address_map[v][1]
-	dists.append( d )
-	row.append( x1 )
-	row.append( x2 )
-	col.append( y1 )
-	col.append( y2 )
-	ne = sum([ int(i==j) for i,j in zip(k.split("."),v.split(".")) ])
-	data.append( ne )
-	data.append( ne )
-	
-
 import matplotlib.gridspec as gridspec
 fig = plt.figure(tight_layout=True, figsize=(24,8))
-gs = gridspec.GridSpec(1, 3)
+gs = gridspec.GridSpec(2, 4)
 
-ax0 = fig.add_subplot(gs[0])
-ax0.hist(dists, bins=30)
-ax0.set_xlabel("Distance (km)")
-ax0.set_ylabel("Number of Confusable Pairs")
-ax0.set_title("(a)")
+dist_bounds = [ (-1,100), (9,11) ]
+N = 961*4
+M = 1546
+figlabs = ['(a)', '(b)', '(c)', '(d)']
+for kk, bb in enumerate(dist_bounds):
+	dists = []
+	row = []
+	col = []
+	data = []
+
+	for k,v in unique_pairs:
+		d = distance.distance( address_map[k][0], address_map[v][0] ).km
+		if d <bb[0] or d>bb[1]: continue
+		
+		x1,y1 = address_map[k][1]
+		x2,y2 = address_map[v][1]
+		
+		dists.append( d )
+		row.append( x1 )
+		row.append( x2 )
+		col.append( y1 )
+		col.append( y2 )
+		ne = sum([ int(i==j) for i,j in zip(k.split("."),v.split(".")) ])
+		data.append( ne )
+		data.append( ne )
 
 
-sp = Counter(data)
-print( "Number of shared words", sp ) #Counter({1: 688, 0: 324, 2: 288})
-ax1 = fig.add_subplot(gs[1:])
-row = np.array(row)
-col = np.array(col)
-data = np.array(data)
-colors = ['y','c','m']
-for i in range(3):
+
+	ax0 = fig.add_subplot(gs[kk,0])
+	ax0.hist(dists, bins=30)
+	ax0.set_xlabel("Distance (km)")
+	ax0.set_ylabel("Number of Confusable Pairs")
+	ax0.set_title(figlabs[2*kk])
+
+
+	sp = Counter(data)
+	print( "Number of shared words", sp ) #1 cell result Counter({1: 688, 0: 324, 2: 288})
+
+	ax1 = fig.add_subplot(gs[kk,1:])
+	row = np.array(row)
+	col = np.array(col)
+	data = np.array(data)
+	colors = ['y','c','m']
+	for i in range(3):
+		idx = np.array( [ j for j in range(len(data)) if data[j]==i ] )
+		ax1.scatter(row[idx], col[idx], marker='s', c=colors[i], label=r"{} confusable pairs with {} identical words".format( int(sp[i]/2), i), s=6, zorder=2)
+
+
+
+
+	ax1.fill_betweenx([0,1561], [s0,s0], [f0,f0],color='lightgrey', zorder=1)
+	ax1.fill_betweenx([0,1561], [s3,s3], [f3,f3],color='lightgrey', zorder=1)
+
+
+	for i in range(1,4): ax1.axvline(x=961*i, linestyle="--", color='k', zorder=3)
+	ax1.set_xlim([-1,N])
+	ax1.set_ylim([-1,M])
+	ax1.set_xlabel("x")
+	ax1.set_ylabel("y")
+	ax1.set_title(figlabs[2*kk+1])
+	lgnd = ax1.legend(markerscale=6, loc="upper left")
 	
-	idx = np.array( [ j for j in range(len(data)) if data[j]==i ] )
-	ax1.scatter(row[idx], col[idx], marker='s', c=colors[i], label=r"{} confusable pairs with {} identical words".format( int(sp[i]/2), i), s=6)
-
-ax1.axvline(x=961, linestyle="--", color='k')
-ax1.axvline(x=961*2, linestyle="--", color='k')
-ax1.set_xlim([-1,N])
-ax1.set_ylim([-1,M])
-ax1.set_xlabel("x")
-ax1.set_ylabel("y")
-ax1.set_title("(b)")
-lgnd = ax1.legend(markerscale=6, loc="upper left")
-
 
 plt.savefig("local_confusion.eps", dpi=fig.dpi)
-plt.show()
+plt.savefig("local_confusion.tiff", dpi=fig.dpi)
+plt.savefig("local_confusion.png", dpi=fig.dpi)
+#plt.show()
 plt.close()
 
